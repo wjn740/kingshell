@@ -6,12 +6,15 @@
 #include <sys/stat.h>
 #include <dirent.h>
 #include <fcntl.h>
+#include <wordexp.h>
+
 
 #define MAXSIZE_CMD		20
-int help();
-int quit();
-int do_ls();
-int do_zy();
+int help(int, char **);
+int quit(int, char **);
+int do_ls(int, char **);
+int do_zy(int, char **);
+int do_cat(int, char **);
 
 char cmd[MAXSIZE_CMD];
 
@@ -20,19 +23,27 @@ struct my_command cmd_set[] = {
 	{0, NULL, "quit", quit}, /* help display info about this shell*/
 	{0, NULL, "ls", do_ls},
 	{0, NULL, "zy", do_zy},
+	{0, NULL, "cat", do_cat},
 	{0, NULL, NULL, NULL}
 };
 
+int do_cat(int argc,char **argv) {
+    int c;
+    while((c=getchar())!=EOF) {
+        putchar(c);
+    }
+    return 0;
+}
 
-int do_zy(void) {
+int do_zy(int argc,char **argv) {
     printf("Hello, zy!!!\n");
     return 0;
 }
-int do_ls(void) {
+int do_ls(int argc,char **argv) {
 	int fd;	
 	DIR *dir;
 	struct dirent *stru_dir;
-	if ((fd = open("/", O_RDONLY)) < 0) {
+	if ((fd = open(".", O_RDONLY)) < 0) {
 		perror("opening a dir ");
 	}
 
@@ -54,12 +65,12 @@ int do_ls(void) {
 
 
 
-int quit() {
+int quit(int argc,char **argv) {
 
 	exit(-1);
 
 }
-int help() {
+int help(int argc,char **argv) {
 
 	printf("This is a program be used for teach \n\
 You can type some command example: \n\
@@ -67,13 +78,16 @@ cd , ls , quit and so on \n");
 	return 0;
 
 }
-int findcmd(char *user_cmd)
+int findcmd(char *user_cmdline)
 {
     struct my_command *p = cmd_set;
     int ret;
+    wordexp_t pp;
+    wordexp(user_cmdline, &pp, 0);
+
     while(p->name) {
-        if (!strncmp(p->name, user_cmd, strlen(cmd))){
-               ret=p->cmd(0, NULL);
+        if (!strncmp(p->name, pp.we_wordv[0], strlen(pp.we_wordv[0]))){
+               ret=p->cmd(pp.we_wordc, pp.we_wordv);
                return ret;
         }
         p++;
@@ -97,9 +111,9 @@ void main_loop() {
 	}
 	cmd[count] = '\0'; //end of string(cmd)
     ret=findcmd(cmd);
-    if (ret==127) {
-	    system(cmd);
-    }
+    //if (ret==127) {
+	//    system(cmd);
+    //}
 }
 
 int main(int argc,char **argv) {
