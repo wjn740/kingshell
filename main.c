@@ -7,6 +7,10 @@
 #include <dirent.h>
 #include <fcntl.h>
 #include <wordexp.h>
+#include <unistd.h>
+#include <termios.h>
+#include <errno.h>
+
 
 
 #define MAXSIZE_CMD		20
@@ -15,6 +19,8 @@ int quit(int, char **);
 int do_ls(int, char **);
 int do_zy(int, char **);
 int do_cat(int, char **);
+int do_passwd(int, char **);
+void read_rcfile();
 
 char cmd[MAXSIZE_CMD];
 
@@ -24,14 +30,60 @@ struct my_command cmd_set[] = {
 	{0, NULL, "ls", do_ls},
 	{0, NULL, "zy", do_zy},
 	{0, NULL, "cat", do_cat},
+	{0, NULL, "passwd", do_passwd},
 	{0, NULL, NULL, NULL}
 };
 
+int do_passwd(int argc,char **argv) {
+    struct termios tp, save;
+    char *buffer;
+    buffer = (char *)malloc(100);
+    if (tcgetattr(STDIN_FILENO, &tp) == -1) {
+        printf("tcgetattr failed\n");
+        goto out;
+    }
+    save = tp;
+    tp.c_lflag &= ~ECHO;
+    if (tcsetattr(STDIN_FILENO, TCSAFLUSH, &tp) == -1) {
+        printf("tcsetattr failed\n");
+        goto out;
+    }
+    printf("Enter text:");
+    fflush(stdout);
+    if (fgets(buffer, 100, stdin) == NULL) {
+        printf("Got end-of-file/error on fgets()\n");
+        goto out;
+    }else {
+        printf("%s\n", buffer);
+    }
+    if (tcsetattr(STDIN_FILENO, TCSANOW, &save) == -1) {
+        printf("tcsetattr failed\n");
+        goto out;
+    }
+out:
+    free(buffer);
+    return 0;
+        
+}
 int do_cat(int argc,char **argv) {
     int c;
-    while((c=getchar())!=EOF) {
-        putchar(c);
+    int i=0;
+    int saved_stdin;
+    saved_stdin = dup(STDIN_FILENO);
+    if (argc > 1) {
+         i = argc;//number of arguments.
     }
+    i--;//transfer to index of array.
+    while(argv[i] && i >= 0) {
+        if (i > 0) {
+            freopen(argv[i], "r", stdin);
+        }
+        while((c=getchar())!=EOF) {
+            putchar(c);
+        }
+        i--;
+    }
+    dup2(saved_stdin, STDIN_FILENO);
     return 0;
 }
 
@@ -109,14 +161,44 @@ void main_loop() {
 		perror("command is too long");
 		exit(-1);
 	}
+    if (strlen(cmd)==0) {
+        return;
+    }
 	cmd[count] = '\0'; //end of string(cmd)
-    ret=findcmd(cmd);
-    //if (ret==127) {
-	//    system(cmd);
-    //}
+    ret=findcmd(cmd);//find command as built-in
+    if (ret==127) {//this is a external command
+	    system(cmd);
+    }
+    cmd[0] = '\0';
 }
-
+void read_rcfile()
+{
+    FILE *fp;
+    char *buffer;
+    char passwd[10];
+    fp = fopen("/home/jnwang/.ksrc", "r");
+    if (!fp) {
+        if (errno == ENOENT) {
+            return; 
+        }
+        perror("fopen");
+        return;
+    }
+    buffer = (char *)malloc(100);
+    if (fgets(buffer, 100, fp) == NULL) {
+        printf("read_rcfile fgets failed\n");
+        goto out;
+    }else {
+        sscanf(buffer,"passwd=%s",passwd);
+    }
+out:
+    free(buffer);
+    return;
+    
+}
 int main(int argc,char **argv) {
+
+    read_rcfile();
 
 	while(1) {
 		main_loop();
