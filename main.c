@@ -21,6 +21,7 @@ int do_zy(int, char **);
 int do_cat(int, char **);
 int do_passwd(int, char **);
 void read_rcfile();
+int do_cd(int, char **);
 
 char cmd[MAXSIZE_CMD];
 
@@ -31,8 +32,22 @@ struct my_command cmd_set[] = {
 	{0, NULL, "zy", do_zy},
 	{0, NULL, "cat", do_cat},
 	{0, NULL, "passwd", do_passwd},
+	{0, NULL, "cd", do_cd},
 	{0, NULL, NULL, NULL}
 };
+int do_cd(int argc,char **argv) {
+    int result=0;
+    if (argc == 1) {
+        result = chdir("/home/jnwang");
+    }
+    if (argc > 1) {
+        result = chdir(argv[1]);
+    }
+    if (result != 0) {
+        perror(argv[1]);
+    }
+    return result;
+}
 
 int do_passwd(int argc,char **argv) {
     struct termios tp, save;
@@ -168,6 +183,7 @@ void main_loop() {
     ret=findcmd(cmd);//find command as built-in
     if (ret==127) {//this is a external command
 	    system(cmd);
+        printf("external command is executed\n");
     }
     cmd[0] = '\0';
 }
@@ -185,11 +201,19 @@ void read_rcfile()
         return;
     }
     buffer = (char *)malloc(100);
-    if (fgets(buffer, 100, fp) == NULL) {
-        printf("read_rcfile fgets failed\n");
-        goto out;
-    }else {
-        sscanf(buffer,"passwd=%s",passwd);
+    while(1){
+        if (fgets(buffer, 100, fp) == NULL) {
+            if (strlen(buffer) == 0) {
+                goto out;
+            }else {
+                perror("fgets");
+                goto out;
+            }
+        }else {
+            sscanf(buffer,"passwd=%s",passwd);
+            printf("%s\n", passwd);
+            buffer[0]='\0';
+        }
     }
 out:
     free(buffer);
