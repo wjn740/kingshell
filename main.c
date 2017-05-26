@@ -24,6 +24,7 @@ void read_rcfile();
 int do_cd(int, char **);
 
 char cmd[MAXSIZE_CMD];
+struct termios save;
 
 struct my_command cmd_set[] = {
 	{0, NULL, "help", help}, /* help display info about this shell*/
@@ -49,20 +50,38 @@ int do_cd(int argc,char **argv) {
     return result;
 }
 
-int do_passwd(int argc,char **argv) {
-    struct termios tp, save;
-    char *buffer;
-    buffer = (char *)malloc(100);
+static int terminal_echo_close(struct termios *save)
+{
+    struct termios tp;
     if (tcgetattr(STDIN_FILENO, &tp) == -1) {
         printf("tcgetattr failed\n");
         goto out;
     }
-    save = tp;
-    tp.c_lflag &= ~ECHO;
+    *save = tp;
+    tp.c_lflag &= ~(ECHO|ECHOE);
+    tp.c_lflag &= ~ICANON;
     if (tcsetattr(STDIN_FILENO, TCSAFLUSH, &tp) == -1) {
         printf("tcsetattr failed\n");
         goto out;
     }
+out:
+    return 0;
+}
+static int terminal_echo_open(struct termios *save)
+{
+    if (tcsetattr(STDIN_FILENO, TCSANOW, save) == -1) {
+        printf("tcsetattr failed\n");
+        goto out;
+    }
+out:
+    return 0;
+}
+
+int do_passwd(int argc,char **argv) {
+    struct termios save;
+    char *buffer;
+    buffer = (char *)malloc(100);
+    terminal_echo_close(&save);
     printf("Enter text:");
     fflush(stdout);
     if (fgets(buffer, 100, stdin) == NULL) {
@@ -71,10 +90,7 @@ int do_passwd(int argc,char **argv) {
     }else {
         printf("%s\n", buffer);
     }
-    if (tcsetattr(STDIN_FILENO, TCSANOW, &save) == -1) {
-        printf("tcsetattr failed\n");
-        goto out;
-    }
+    terminal_echo_open(&save);
 out:
     free(buffer);
     return 0;
@@ -134,6 +150,7 @@ int do_ls(int argc,char **argv) {
 
 int quit(int argc,char **argv) {
 
+
 	exit(-1);
 
 }
@@ -167,11 +184,51 @@ void main_loop() {
 	char c;
     int ret;
 
+    terminal_echo_close(&save);
 	printf("kingshell$ ");
 	fflush(stdout);
-	while ((c=getchar())!='\n' && count < MAXSIZE_CMD) {
+	while ((c=getchar()) != '\n' && count < MAXSIZE_CMD) {
+        if (c == '\b') {
+            count--;
+            continue;
+        }
+        if (c == 0x1b) {
+            c = getchar();
+            switch (c) {
+                case 0x5b:
+                    c = getchar();
+                    switch (c) {
+                    case 'A':
+                        putchar('a');
+                        break;
+                    case 'B':
+                        putchar('b');
+                        break;
+                    case 'C':
+                        putchar('c');
+                        break;
+                    case 'D':
+                        putchar('d');
+                        break;
+                    }
+                    break;
+            }
+            continue;
+        }
+        if (c == 0x7f) {
+            if (count-- > 0) {
+                putchar('\b');
+                putchar(' ');
+                putchar('\b');
+                cmd[count]='\0';
+            }
+            continue;
+        }
 		cmd[count++] = c;
+        putchar(c);
 	}
+    terminal_echo_open(&save);
+    printf("\n");
 	if ( count > MAXSIZE_CMD) {
 		perror("command is too long");
 		exit(-1);
@@ -223,6 +280,7 @@ out:
 int main(int argc,char **argv) {
 
     read_rcfile();
+
 
 	while(1) {
 		main_loop();
