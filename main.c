@@ -10,6 +10,8 @@
 #include <unistd.h>
 #include <termios.h>
 #include <errno.h>
+#include "link.h"
+#include <stddef.h>
 
 
 
@@ -22,26 +24,73 @@ int do_cat(int, char **);
 int do_passwd(int, char **);
 void read_rcfile();
 int do_cd(int, char **);
+int do_dh(int,char **);
 
-void read_cmdline(void);
 
-char cmd[MAXSIZE_CMD];
 struct termios save;
 
 struct my_command cmd_set[] = {
 	{0, NULL, "help", help}, /* help display info about this shell*/
 	{0, NULL, "quit", quit}, /* help display info about this shell*/
-	{0, NULL, "ls", do_ls},
+	//{0, NULL, "ls", do_ls},
 	{0, NULL, "zy", do_zy},
 	{0, NULL, "cat", do_cat},
 	{0, NULL, "passwd", do_passwd},
 	{0, NULL, "cd", do_cd},
+	{0, NULL, "dh", do_dh},
 	{0, NULL, NULL, NULL}
 };
+
+struct linknode {
+    struct linknode *next;
+};
+
+typedef struct command_line {
+    char cmd[MAXSIZE_CMD];
+    int pos;
+    int count;
+    struct linknode list;
+}p_commandline;
+
+struct cmdlines {
+    p_commandline *current;
+    struct linknode *history;
+};
+
+struct cmdlines global_cmdline;
+
+void read_cmdline(p_commandline *);
+void main_loop(p_commandline *);
+
+#define container_of(ptr, type, member) ({ \
+            const typeof( ((type *)0)->member ) \
+            *__mptr = (ptr);\
+            (type *)( (char *)__mptr - offsetof(type,member) );})
+
+
+int do_dh(int argc,char **argv) {
+    struct linknode *tmp;
+    p_commandline *p;
+    printf("---debug history list----\n");
+    tmp = global_cmdline.history;
+    while(tmp->next) {
+        tmp=tmp->next;
+        p=container_of(tmp,p_commandline,list);
+        printf("%s\n",p->cmd);
+    }
+    return 0;
+}
+
 int do_cd(int argc,char **argv) {
     int result=0;
+    char *phome = 0;
     if (argc == 1) {
-        result = chdir("/home/jnwang");
+        phome = getenv("HOME");
+        if (phome) {
+            result = chdir(phome);
+        }else {
+            result = chdir("/");
+        }
     }
     if (argc > 1) {
         result = chdir(argv[1]);
@@ -181,12 +230,13 @@ int findcmd(char *user_cmdline)
     return 127;
 }
 
-void read_cmdline(void)
+void read_cmdline(p_commandline *cmd)
 {
-	int count = 0;
 	int c;
-    int pos = 0;
-	while ((c=getchar()) != '\n' && count < MAXSIZE_CMD) {
+	cmd->count = 0;
+    cmd->pos = 0;
+    cmd->cmd[0]= '\0';
+	while ((c=getchar()) != '\n' && cmd->count < MAXSIZE_CMD) {
         if (c == 0x1b) {//move cursor
             c = getchar();
             switch (c) {
@@ -198,15 +248,15 @@ void read_cmdline(void)
                     case 'B':
                         break;
                     case 'C':
-                        if (count > pos) { //you could go forward
+                        if (cmd->count > cmd->pos) { //you could go forward
                             printf("\033[C");
-                            pos++;
+                            cmd->pos++;
                         }
                         break;
                     case 'D':
-                        if (pos > 0) { //you could go back
+                        if (cmd->pos > 0) { //you could go back
                             printf("\033[D");
-                            pos--;
+                            cmd->pos--;
                         }
                         break;
                     }
@@ -215,13 +265,13 @@ void read_cmdline(void)
             continue;
         }
         if (c == 0x7f) {//delete char
-            if (pos > 0) {
+            if (cmd->pos > 0) {
                 putchar('\b');
                 putchar(' ');
                 putchar('\b');
-                cmd[pos]='\0';
-                pos--;
-                count--;
+                cmd->pos--;
+                cmd->count--;
+                cmd->cmd[cmd->pos]='\0';
             }
             continue;
         }
@@ -229,51 +279,59 @@ void read_cmdline(void)
             /*Fix me*/
             continue;
         }
-        if (count == pos) {
-            cmd[pos++] = c;
-            count++;
+        if (cmd->count == cmd->pos) {
+            cmd->cmd[cmd->pos++] = c;
+            cmd->count++;
             putchar(c);
         }
-        if (pos < count) {
-            int i = count;
-            while (i>pos) {
-                cmd[i] = cmd[i-1];
+        if (cmd->pos < cmd->count) {
+            int i = cmd->count;
+            while (i>cmd->pos) {
+                cmd->cmd[i] = cmd->cmd[i-1];
                 i--;
             }
-            cmd[pos++] = (char)c;
-            count++;
-            for (i=pos-1;i<count;i++) {
-                putchar(cmd[i]);
+            if (c == 0x7f) {//delete char
+                if (cmd->pos > 0) {
+                    putchar('\b');
+                    putchar(' ');
+                    putchar('\b');
+                    cmd->pos--;
+                    cmd->count--;
+                }
+                continue;
             }
-            for (i=count;i>pos;i--) {
+            cmd->cmd[cmd->pos++] = (char)c;
+            cmd->count++;
+            for (i=cmd->pos-1;i<cmd->count;i++) {
+                putchar(cmd->cmd[i]);
+            }
+            for (i=cmd->count;i>cmd->pos;i--) {
                 putchar('\b');
             }
         }
 	}
-    cmd[count]='\0';
+    cmd->cmd[cmd->count]='\0';
     return;
 }
 
-void main_loop() {
-	int count = 0;
+void main_loop(p_commandline *cmd) {
     int ret;
 
     terminal_echo_close(&save);
 	printf("kingshell$ ");
 	fflush(stdout);
-    read_cmdline();
+    read_cmdline(cmd);
     terminal_echo_open(&save);
     printf("\n");
-	if ( count > MAXSIZE_CMD) {
+	if ( cmd->count > MAXSIZE_CMD) {
 		perror("command is too long");
 		exit(-1);
 	}
-    ret=findcmd(cmd);//find command as built-in
+    ret=findcmd(cmd->cmd);//find command as built-in
     if (ret==127) {//this is a external command
-	    system(cmd);
+	    system(cmd->cmd);
         printf("external command is executed\n");
     }
-    cmd[0] = '\0';
 }
 void read_rcfile()
 {
@@ -299,7 +357,6 @@ void read_rcfile()
             }
         }else {
             sscanf(buffer,"passwd=%s",passwd);
-            printf("%s\n", passwd);
             buffer[0]='\0';
         }
     }
@@ -309,13 +366,26 @@ out:
     
 }
 int main(int argc,char **argv) {
+    p_commandline *pcmd;
 
     read_rcfile();
 
 
+    global_cmdline.history=(struct linknode*)malloc(sizeof(struct linknode));
+    global_cmdline.history->next = NULL;
+    
+
 	while(1) {
-		main_loop();
+        pcmd=global_cmdline.current=(p_commandline *)malloc(sizeof(p_commandline));
+        pcmd->list.next=NULL;
+        pcmd->count = 0;
+        pcmd->pos = 0;
+        pcmd->cmd[0] = '\0';
+		main_loop(pcmd);
+        LINKADD(global_cmdline.history, &pcmd->list);
 	}
+
+    
 	/*
 	 * option 
 	 */	
