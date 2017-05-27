@@ -225,6 +225,10 @@ void read_cmdline(void)
             }
             continue;
         }
+        if(c==0x9) {//tab key
+            /*Fix me*/
+            continue;
+        }
         if (count == pos) {
             cmd[pos++] = c;
             count++;
