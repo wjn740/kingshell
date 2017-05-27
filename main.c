@@ -13,7 +13,7 @@
 
 
 
-#define MAXSIZE_CMD		20
+#define MAXSIZE_CMD		256
 int help(int, char **);
 int quit(int, char **);
 int do_ls(int, char **);
@@ -22,6 +22,8 @@ int do_cat(int, char **);
 int do_passwd(int, char **);
 void read_rcfile();
 int do_cd(int, char **);
+
+void read_cmdline(void);
 
 char cmd[MAXSIZE_CMD];
 struct termios save;
@@ -179,64 +181,89 @@ int findcmd(char *user_cmdline)
     return 127;
 }
 
-void main_loop() {
+void read_cmdline(void)
+{
 	int count = 0;
-	char c;
-    int ret;
-
-    terminal_echo_close(&save);
-	printf("kingshell$ ");
-	fflush(stdout);
+	int c;
+    int pos = 0;
 	while ((c=getchar()) != '\n' && count < MAXSIZE_CMD) {
-        if (c == '\b') {
-            count--;
-            continue;
-        }
-        if (c == 0x1b) {
+        if (c == 0x1b) {//move cursor
             c = getchar();
             switch (c) {
                 case 0x5b:
                     c = getchar();
                     switch (c) {
                     case 'A':
-                        putchar('a');
                         break;
                     case 'B':
-                        putchar('b');
                         break;
                     case 'C':
-                        putchar('c');
+                        if (count > pos) { //you could go forward
+                            printf("\033[C");
+                            pos++;
+                        }
                         break;
                     case 'D':
-                        putchar('d');
+                        if (pos > 0) { //you could go back
+                            printf("\033[D");
+                            pos--;
+                        }
                         break;
                     }
                     break;
             }
             continue;
         }
-        if (c == 0x7f) {
-            if (count-- > 0) {
+        if (c == 0x7f) {//delete char
+            if (pos > 0) {
                 putchar('\b');
                 putchar(' ');
                 putchar('\b');
-                cmd[count]='\0';
+                cmd[pos]='\0';
+                pos--;
+                count--;
             }
             continue;
         }
-		cmd[count++] = c;
-        putchar(c);
+        if (count == pos) {
+            cmd[pos++] = c;
+            count++;
+            putchar(c);
+        }
+        if (pos < count) {
+            int i = count;
+            while (i>pos) {
+                cmd[i] = cmd[i-1];
+                i--;
+            }
+            cmd[pos++] = (char)c;
+            count++;
+            for (i=pos-1;i<count;i++) {
+                putchar(cmd[i]);
+            }
+            for (i=count;i>pos;i--) {
+                putchar('\b');
+            }
+        }
 	}
+    cmd[count]='\0';
+    return;
+}
+
+void main_loop() {
+	int count = 0;
+    int ret;
+
+    terminal_echo_close(&save);
+	printf("kingshell$ ");
+	fflush(stdout);
+    read_cmdline();
     terminal_echo_open(&save);
     printf("\n");
 	if ( count > MAXSIZE_CMD) {
 		perror("command is too long");
 		exit(-1);
 	}
-    if (strlen(cmd)==0) {
-        return;
-    }
-	cmd[count] = '\0'; //end of string(cmd)
     ret=findcmd(cmd);//find command as built-in
     if (ret==127) {//this is a external command
 	    system(cmd);
